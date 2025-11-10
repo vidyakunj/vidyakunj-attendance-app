@@ -17,5 +17,8 @@ dependencies:
   connectivity_plus: ^4.0.0
   flutter_secure_storage: ^8.0.0
   fluttertoast: ^8.2.1
+  intl: ^0.18.0
 flutter:
+  assets:
+    - assets/school_logo.bmp
   uses-material-design: true
