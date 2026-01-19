@@ -120,6 +120,17 @@ app.get("/attendance/summary-school", async (req, res) => {
 ;
 });
 
+/* ================= STUDENTS API ================= */
+app.get("/students", async (req, res) => {
+  try {
+    const students = await Student.find(req.query).sort({ roll: 1 });
+    res.json({ students });
+  } catch (err) {
+    console.error("STUDENTS ERROR:", err);
+    res.status(500).json({ students: [] });
+  }
+});
 
 app.listen(PORT, () => console.log(`✅ Server running on port ${PORT}`));
+
 
