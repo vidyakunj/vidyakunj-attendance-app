@@ -1,74 +1,67 @@
 /* =======================================================
-   VIDYAKUNJ – ATTENDANCE + SMS BACKEND
-   FINAL STABLE VERSION (SCHOOL SUMMARY FIXED)
+   VIDYAKUNJ ATTENDANCE BACKEND – SCHOOL SUMMARY FIXED
    ======================================================= */
 
 const express = require("express");
 const bodyParser = require("body-parser");
 const mongoose = require("mongoose");
-const axios = require("axios");
 const cors = require("cors");
 require("dotenv").config();
 
-/* ================= APP SETUP ================= */
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-app.use(cors({
-  origin: "https://vidyakunj-frontend.onrender.com",
-  methods: ["GET", "POST"],
-}));
-
+app.use(cors());
 app.use(bodyParser.json());
 
-/* ================= MONGO CONNECT ================= */
+/* =======================================================
+   MONGODB CONNECTION
+   ======================================================= */
 mongoose
   .connect(process.env.MONGO_URL)
   .then(() => console.log("✅ MongoDB Connected"))
   .catch((err) => console.error("❌ MongoDB Error:", err));
 
-/* ================= SCHEMAS ================= */
-const Student = mongoose.model("students", new mongoose.Schema({
-  std: String,
-  div: String,
-  name: String,
-  roll: Number,
-  mobile: String,
-}));
+/* =======================================================
+   SCHEMAS
+   ======================================================= */
+const StudentSchema = new mongoose.Schema(
+  {
+    std: String,
+    div: String,
+    roll: Number,
+    name: String,
+    mobile: String,
+  },
+  { collection: "students" }
+);
 
-const Attendance = mongoose.model("attendance", new mongoose.Schema({
-  studentId: mongoose.Schema.Types.ObjectId,
-  std: String,
-  div: String,
-  roll: Number,
-  date: Date,
-  present: Boolean,
-  late: Boolean,
-}));
+const AttendanceSchema = new mongoose.Schema(
+  {
+    studentId: mongoose.Schema.Types.ObjectId,
+    std: String,
+    div: String,
+    roll: Number,
+    date: Date,
+    present: Boolean,
+    late: Boolean,
+  },
+  { collection: "attendances" }
+);
 
-/* ================= BASIC ================= */
+const Student = mongoose.model("Student", StudentSchema);
+const Attendance = mongoose.model("Attendance", AttendanceSchema);
+
+/* =======================================================
+   HEALTH CHECK
+   ======================================================= */
 app.get("/", (req, res) => {
   res.send("Vidyakunj Attendance Server Running");
 });
 
-/* ================= STUDENTS API ================= */
-app.get("/students", async (req, res) => {
-  try {
-    const students = await Student.find(req.query).sort({ roll: 1 });
-    res.json({ students });
-  } catch (err) {
-    console.error("STUDENTS ERROR:", err);
-    res.status(500).json({ students: [] });
-  }
-});
-
-/* ================= SCHOOL SUMMARY ================= */
-/*
-   ✔ Whole school
-   ✔ All standards
-   ✔ All divisions
-   ✔ Based on students collection
-*/
+/* =======================================================
+   SCHOOL SUMMARY (FIXED + ENHANCED)
+   ======================================================= */
 app.get("/attendance/summary-school", async (req, res) => {
   try {
     const { date } = req.query;
@@ -78,17 +71,19 @@ app.get("/attendance/summary-school", async (req, res) => {
         success: true,
         primary: [],
         secondary: [],
-        schoolTotal: { total: 0, present: 0, absent: 0 },
+        schoolTotal: { total: 0, present: 0, absent: 0, late: 0 },
       });
     }
 
-    const fromDate = new Date(date);
-    fromDate.setHours(0, 0, 0, 0);
+    const start = new Date(date);
+    start.setHours(0, 0, 0, 0);
 
-    const toDate = new Date(fromDate);
-    toDate.setDate(fromDate.getDate() + 1);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
 
-    /* 1️⃣ Get all classes from students */
+    /* -------------------------------
+       GROUP STUDENTS BY STD + DIV
+       ------------------------------- */
     const classes = await Student.aggregate([
       {
         $group: {
@@ -96,14 +91,20 @@ app.get("/attendance/summary-school", async (req, res) => {
           total: { $sum: 1 },
         },
       },
-      { $sort: { "_id.std": 1, "_id.div": 1 } },
+      {
+        $addFields: {
+          stdNum: { $toInt: "$_id.std" },
+        },
+      },
+      {
+        $sort: { stdNum: 1, "_id.div": 1 },
+      },
     ]);
 
     let primary = [];
     let secondary = [];
-    let schoolTotal = { total: 0, present: 0, absent: 0 };
+    let schoolTotal = { total: 0, present: 0, absent: 0, late: 0 };
 
-    /* 2️⃣ For each class, calculate attendance */
     for (const cls of classes) {
       const std = cls._id.std;
       const div = cls._id.div;
@@ -113,10 +114,20 @@ app.get("/attendance/summary-school", async (req, res) => {
         std,
         div,
         present: true,
-        date: { $gte: fromDate, $lt: toDate },
+        date: { $gte: start, $lt: end },
+      });
+
+      const lateCount = await Attendance.countDocuments({
+        std,
+        div,
+        present: true,
+        late: true,
+        date: { $gte: start, $lt: end },
       });
 
       const absent = total - presentCount;
+      const attendancePercent =
+        total > 0 ? Number(((presentCount / total) * 100).toFixed(2)) : 0;
 
       const row = {
         std,
@@ -124,11 +135,14 @@ app.get("/attendance/summary-school", async (req, res) => {
         total,
         present: presentCount,
         absent,
+        late: lateCount,
+        attendancePercent,
       };
 
       schoolTotal.total += total;
       schoolTotal.present += presentCount;
       schoolTotal.absent += absent;
+      schoolTotal.late += lateCount;
 
       if (parseInt(std) <= 8) primary.push(row);
       else secondary.push(row);
@@ -140,19 +154,37 @@ app.get("/attendance/summary-school", async (req, res) => {
       secondary,
       schoolTotal,
     });
-
   } catch (err) {
-    console.error("SUMMARY ERROR:", err);
+    console.error("❌ SUMMARY ERROR:", err);
     res.json({
       success: true,
       primary: [],
       secondary: [],
-      schoolTotal: { total: 0, present: 0, absent: 0 },
+      schoolTotal: { total: 0, present: 0, absent: 0, late: 0 },
     });
   }
 });
 
-/* ================= START SERVER ================= */
+/* =======================================================
+   STUDENTS LIST (SAFE)
+   ======================================================= */
+app.get("/students", async (req, res) => {
+  try {
+    const students = await Student.find(req.query).sort({
+      std: 1,
+      div: 1,
+      roll: 1,
+    });
+    res.json({ students });
+  } catch (err) {
+    console.error("❌ STUDENTS ERROR:", err);
+    res.status(500).json({ students: [] });
+  }
+});
+
+/* =======================================================
+   START SERVER
+   ======================================================= */
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
