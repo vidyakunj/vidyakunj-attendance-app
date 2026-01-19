@@ -1,59 +1,54 @@
 /* =======================================================
-   VIDYAKUNJ SERVER – FINAL STABLE VERSION
-   SMS + STUDENTS + ATTENDANCE SUMMARY
+   VIDYAKUNJ – ATTENDANCE + SMS BACKEND
+   FINAL STABLE VERSION (SCHOOL SUMMARY FIXED)
    ======================================================= */
 
 const express = require("express");
 const bodyParser = require("body-parser");
 const mongoose = require("mongoose");
 const axios = require("axios");
+const cors = require("cors");
 require("dotenv").config();
 
+/* ================= APP SETUP ================= */
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-/* ================= MIDDLEWARE ================= */
-app.use(bodyParser.json());
+app.use(cors({
+  origin: "https://vidyakunj-frontend.onrender.com",
+  methods: ["GET", "POST"],
+}));
 
-/* ================= ENV ================= */
-const {
-  MONGO_URL,
-  GUPSHUP_USERID,
-  GUPSHUP_PASSWORD,
-  GUPSHUP_SENDERID,
-  SCHOOL_NAME = "Vidyakunj School Navsari",
-} = process.env;
+app.use(bodyParser.json());
 
 /* ================= MONGO CONNECT ================= */
 mongoose
-  .connect(MONGO_URL)
+  .connect(process.env.MONGO_URL)
   .then(() => console.log("✅ MongoDB Connected"))
   .catch((err) => console.error("❌ MongoDB Error:", err));
 
 /* ================= SCHEMAS ================= */
-const StudentSchema = new mongoose.Schema({
+const Student = mongoose.model("students", new mongoose.Schema({
   std: String,
   div: String,
   name: String,
   roll: Number,
   mobile: String,
-});
+}));
 
-const AttendanceSchema = new mongoose.Schema({
+const Attendance = mongoose.model("attendance", new mongoose.Schema({
   studentId: mongoose.Schema.Types.ObjectId,
   std: String,
   div: String,
   roll: Number,
   date: Date,
   present: Boolean,
-});
+  late: Boolean,
+}));
 
-const Student = mongoose.model("students", StudentSchema);
-const Attendance = mongoose.model("attendance", AttendanceSchema);
-
-/* ================= ROOT ================= */
+/* ================= BASIC ================= */
 app.get("/", (req, res) => {
-  res.send(`${SCHOOL_NAME} API is running`);
+  res.send("Vidyakunj Attendance Server Running");
 });
 
 /* ================= STUDENTS API ================= */
@@ -67,7 +62,13 @@ app.get("/students", async (req, res) => {
   }
 });
 
-/* ================= ATTENDANCE SUMMARY ================= */
+/* ================= SCHOOL SUMMARY ================= */
+/*
+   ✔ Whole school
+   ✔ All standards
+   ✔ All divisions
+   ✔ Based on students collection
+*/
 app.get("/attendance/summary-school", async (req, res) => {
   try {
     const { date } = req.query;
@@ -81,12 +82,13 @@ app.get("/attendance/summary-school", async (req, res) => {
       });
     }
 
-    const parsedDate = new Date(date);
-    parsedDate.setHours(0, 0, 0, 0);
+    const fromDate = new Date(date);
+    fromDate.setHours(0, 0, 0, 0);
 
-    const nextDay = new Date(parsedDate);
-    nextDay.setDate(parsedDate.getDate() + 1);
+    const toDate = new Date(fromDate);
+    toDate.setDate(fromDate.getDate() + 1);
 
+    /* 1️⃣ Get all classes from students */
     const classes = await Student.aggregate([
       {
         $group: {
@@ -101,31 +103,44 @@ app.get("/attendance/summary-school", async (req, res) => {
     let secondary = [];
     let schoolTotal = { total: 0, present: 0, absent: 0 };
 
-    for (const c of classes) {
-      const std = c._id.std;
-      const div = c._id.div;
-      const total = c.total;
+    /* 2️⃣ For each class, calculate attendance */
+    for (const cls of classes) {
+      const std = cls._id.std;
+      const div = cls._id.div;
+      const total = cls.total;
 
-      const absent = await Attendance.countDocuments({
+      const presentCount = await Attendance.countDocuments({
         std,
         div,
-        present: false,
-        date: { $gte: parsedDate, $lt: nextDay },
+        present: true,
+        date: { $gte: fromDate, $lt: toDate },
       });
 
-      const present = total - absent;
+      const absent = total - presentCount;
 
-      const row = { std, div, total, present, absent };
+      const row = {
+        std,
+        div,
+        total,
+        present: presentCount,
+        absent,
+      };
 
       schoolTotal.total += total;
-      schoolTotal.present += present;
+      schoolTotal.present += presentCount;
       schoolTotal.absent += absent;
 
       if (parseInt(std) <= 8) primary.push(row);
       else secondary.push(row);
     }
 
-    res.json({ success: true, primary, secondary, schoolTotal });
+    res.json({
+      success: true,
+      primary,
+      secondary,
+      schoolTotal,
+    });
+
   } catch (err) {
     console.error("SUMMARY ERROR:", err);
     res.json({
@@ -137,39 +152,7 @@ app.get("/attendance/summary-school", async (req, res) => {
   }
 });
 
-/* ================= SEND SMS ================= */
-app.post("/send-sms", async (req, res) => {
-  try {
-    const { phone, message } = req.body;
-
-    if (!phone || !message) {
-      return res.status(400).json({ error: "Missing phone or message" });
-    }
-
-    const smsUrl = "https://enterprise.smsgupshup.com/GatewayAPI/rest";
-
-    const params = new URLSearchParams({
-      method: "sendMessage",
-      send_to: phone,
-      msg: `${SCHOOL_NAME}: ${message}`,
-      msg_type: "TEXT",
-      userid: GUPSHUP_USERID,
-      auth_scheme: "plain",
-      password: GUPSHUP_PASSWORD,
-      v: "1.1",
-      format: "text",
-      mask: GUPSHUP_SENDERID,
-    });
-
-    const response = await axios.post(smsUrl, params);
-    res.json({ success: true, response: response.data });
-  } catch (error) {
-    console.error("SMS ERROR:", error);
-    res.status(500).json({ error: error.message });
-  }
+/* ================= START SERVER ================= */
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
 });
-
-/* ================= START ================= */
-app.listen(PORT, () =>
-  console.log(`🚀 Server running on port ${PORT}`)
-);
