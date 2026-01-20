@@ -322,9 +322,19 @@ app.get("/attendance/summary-school-range", async (req, res) => {
 });
 
 /* =======================================================
+   ALIAS ROUTE (FIX FRONTEND 404 ISSUE)
+   DO NOT MOVE THIS BLOCK
+   ======================================================= */
+app.get("/attendance/summary-range", async (req, res) => {
+  req.url = "/attendance/summary-school-range";
+  app._router.handle(req, res);
+});
+
+/* =======================================================
    START SERVER
    ======================================================= */
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
+
 
