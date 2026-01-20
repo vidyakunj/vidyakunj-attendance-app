@@ -13,6 +13,13 @@ const PORT = process.env.PORT || 10000;
 
 app.use(cors());
 app.use(bodyParser.json());
+/* =======================================================
+   ROOT HEALTH CHECK (REQUIRED)
+   ======================================================= */
+app.get("/", (req, res) => {
+  res.send("Vidyakunj Attendance Server Running");
+});
+
 
 /* =======================================================
    MONGODB CONNECTION
@@ -358,6 +365,11 @@ app.post("/login", (req, res) => {
     username: user.username,
   });
 });
+app.get("/attendance/summary-range", (req, res) => {
+  req.url = "/attendance/summary-school-range";
+  app._router.handle(req, res);
+});
+
 
 /* =======================================================
    START SERVER
@@ -365,6 +377,7 @@ app.post("/login", (req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
+
 
 
 
