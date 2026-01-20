@@ -325,9 +325,10 @@ app.get("/attendance/summary-school-range", async (req, res) => {
    DO NOT MOVE THIS BLOCK
    ======================================================= */
 app.get("/attendance/summary-range", (req, res) => {
-  req.originalUrl = "/attendance/summary-school-range";
+  req.url = "/attendance/summary-school-range";
   app._router.handle(req, res);
 });
+
 /* =======================================================
    SIMPLE LOGIN (ADMIN / TEACHER)
    ======================================================= */
@@ -364,6 +365,7 @@ app.post("/login", (req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
+
 
 
 
