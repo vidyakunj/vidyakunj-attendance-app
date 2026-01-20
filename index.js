@@ -329,11 +329,42 @@ app.get("/attendance/summary-range", (req, res) => {
   app._router.handle(req, res);
 });
 /* =======================================================
+   SIMPLE LOGIN (ADMIN / TEACHER)
+   ======================================================= */
+app.post("/login", (req, res) => {
+  const { username, password, role } = req.body;
+
+  const users = [
+    { username: "admin", password: "admin123", role: "admin" },
+    { username: "patil", password: "iken", role: "teacher" },
+    { username: "teacher1", password: "1234", role: "teacher" },
+  ];
+
+  const user = users.find(
+    (u) =>
+      u.username === username &&
+      u.password === password &&
+      u.role === role
+  );
+
+  if (!user) {
+    return res.status(401).json({ success: false });
+  }
+
+  res.json({
+    success: true,
+    role: user.role,
+    username: user.username,
+  });
+});
+
+/* =======================================================
    START SERVER
    ======================================================= */
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
+
 
 
 
